@@ -18,19 +18,28 @@ The **Code Nexus Data Processing Pipeline** is a polymorphic data processing sys
 
 ### Class Hierarchy
 DataProcessor (ABC)
-├── NumericProcessor
-├── TextProcessor
-└── LogProcessor
+├── 
+NumericProcessor
+├──
+TextProcessor
+└── 
+LogProcessor
 
 DataStream
-├── register_processor()
-├── process_stream()
-├── output_pipeline()
-└── print_processors_stats()
+├── 
+register_processor()
+├── 
+process_stream()
+├── 
+output_pipeline()
+└── 
+print_processors_stats()
 
 ExportPlugin (Protocol)
-├── CSVExportPlugin
-└── JSONExportPlugin
+├── 
+CSVExportPlugin
+└── 
+JSONExportPlugin
 
 text
 
