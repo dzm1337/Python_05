@@ -8,6 +8,7 @@ class DataProcessor(ABC):
         self.idx_counter = 0
         self.nxt_output_index = 0
         self.storage = []
+        self.processed_count = 0
 
     @abstractmethod
     def validate(self, data: Any) -> bool:
@@ -23,6 +24,12 @@ class DataProcessor(ABC):
             self.nxt_output_index += 1
             return (idx, output)
         return (0, "")
+
+    def get_processed_count(self) -> int:
+        return self.processed_count
+
+    def get_remaining_count(self) -> int:
+        return len(self.storage) - self.nxt_output_index
 
 
 class NumericProcessor(DataProcessor):
@@ -46,6 +53,7 @@ class NumericProcessor(DataProcessor):
         for item in tmp_data:
             self.storage.append((self.idx_counter, str(item)))
             self.idx_counter += 1
+            self.processed_count += 1
 
 
 class TextProcessor(DataProcessor):
@@ -69,6 +77,7 @@ class TextProcessor(DataProcessor):
         for item in tmp_data:
             self.storage.append((self.idx_counter, item))
             self.idx_counter += 1
+            self.processed_count += 1
 
 
 class LogProcessor(DataProcessor):
@@ -108,57 +117,95 @@ class LogProcessor(DataProcessor):
                 log_str = ", ".join(parts)
             self.storage.append((self.idx_counter, log_str))
             self.idx_counter += 1
+            self.processed_count += 1
 
 
-def main():
-    print("=== Code Nexus - Data Processor ===")
+class DataStream:
+    def __init__(self):
+        self.processors = []
 
-    nproc = NumericProcessor()
-    tproc = TextProcessor()
-    lproc = LogProcessor()
+    def register_processor(self, proc: DataProcessor) -> None:
+        self.processors.append(proc)
 
-    print("Testing Numeric Processor...")
-    print(f"Trying to validate input '42': {nproc.validate(42)}")
-    print(f"Trying to validate input 'Hello': {nproc.validate('Hello')}")
-    print("Test with invalid ingestion of string 'foo' without prior "
-          "validation:")
+    def process_stream(self, stream: list[Any]) -> None:
+        for element in stream:
+            processed = False
+            for processor in self.processors:
+                if processor.validate(element):
+                    try:
+                        processor.ingest(element)
+                        processed = True
+                        break
+                    except Exception:
+                        print(f"DataStream error - Error ingesting element: "
+                              f"{element}")
+                        processed = True
+                        break
+            if not processed:
+                print(f"DataStream error - Can't process element in stream: "
+                      f"{element}")
 
-    try:
-        nproc.ingest("foo")
-    except Exception as e:
-        print(e)
+    def print_processors_stats(self) -> None:
+        if not self.processors:
+            print("No processor found, no data")
+            return
 
-    valid_num_input = [1, 2, 3, 4, 5]
-    print(f"Processing data: {valid_num_input}")
-    nproc.ingest(valid_num_input)
-
-    print("Extracting 3 values...")
-    for _ in range(3):
-        idx, val = nproc.output()
-        print(f"Numeric value {idx}: {val}")
-
-    print("\nTesting Text Processor...")
-    print(f"Trying to validate input '42': "
-          f"{tproc.validate('42')}")
-    tproc.ingest(['Hello', 'Nexus', 'World'])
-    print("Processing data: ['Hello', 'Nexus', 'World']")
-    print("Extracting 1 value...")
-    idx, val = tproc.output()
-    print(f"Text value {idx}: {val}")
-
-    print("\nTesting Log Processor...")
-    print(f"Trying to validate input 'Hello': {lproc.validate('Hello')}")
-    log_data = [
-        {'log_level': 'NOTICE', 'log_message': 'Connection to server'},
-        {'log_level': 'ERROR', 'log_message': 'Unauthorized access!!'}
-    ]
-    lproc.ingest(log_data)
-    print(f"Processing data: {log_data}")
-    print("Extracting 2 values...")
-    for _ in range(2):
-        idx, val = lproc.output()
-        print(f"Log entry {idx}: {val}")
+        for processor in self.processors:
+            processor_name = processor.__class__.__name__
+            total = processor.get_processed_count()
+            remaining = processor.get_remaining_count()
+            print(f"{processor_name}: total {total} items processed, "
+                  f"remaining {remaining} on processor")
 
 
 if __name__ == "__main__":
-    main()
+    print("=== Code Nexus - Data Stream ===")
+
+    print("Initialize Data Stream...")
+    data_stream = DataStream()
+
+    data_stream.print_processors_stats()
+
+    print("Registering Numeric Processor")
+    num_proc = NumericProcessor()
+    data_stream.register_processor(num_proc)
+
+    first_batch = [
+        'Hello world',
+        [3.14, -1, 2.71],
+        [{'log_level': 'WARNING',
+          'log_message': 'Telnet access! Use ssh instead'},
+         {'log_level': 'INFO',
+          'log_message': 'User wil is connected'}],
+        42,
+        ['Hi', 'five']
+    ]
+    print("Send first batch of data on stream:", first_batch)
+    data_stream.process_stream(first_batch)
+
+    print("== DataStream statistics ==")
+    data_stream.print_processors_stats()
+
+    print("\nRegistering other data processors")
+    text_proc = TextProcessor()
+    log_proc = LogProcessor()
+    data_stream.register_processor(text_proc)
+    data_stream.register_processor(log_proc)
+
+    print("Send the same batch again")
+    data_stream.process_stream(first_batch)
+
+    print("== DataStream statistics ==")
+    data_stream.print_processors_stats()
+
+    print("\nConsume some elements from the data processors: "
+          "Numeric 3, Text 2, Log 1")
+    for _ in range(3):
+        num_proc.output()
+    for _ in range(2):
+        text_proc.output()
+    for _ in range(1):
+        log_proc.output()
+
+    print("== DataStream statistics ==")
+    data_stream.print_processors_stats()
