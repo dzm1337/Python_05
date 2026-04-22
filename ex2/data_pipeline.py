@@ -1,14 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import Union, Any, Protocol
+from collections.abc import Sequence
+from typing import Any, Protocol
 
 
 class DataProcessor(ABC):
-
-    def __init__(self):
-        self.idx_counter = 0
-        self.nxt_output_index = 0
-        self.storage = []
-        self.processed_count = 0
+    def __init__(self) -> None:
+        self.idx_counter: int = 0
+        self.storage: list[tuple[int, str]] = []
+        self.processed_count: int = 0
 
     @abstractmethod
     def validate(self, data: Any) -> bool:
@@ -19,36 +18,35 @@ class DataProcessor(ABC):
         pass
 
     def output(self) -> tuple[int, str]:
-        if self.nxt_output_index < len(self.storage):
-            idx, output = self.storage[self.nxt_output_index]
-            self.nxt_output_index += 1
-            return (idx, output)
+        if self.storage:
+            return self.storage.pop(0)
         return (0, "")
 
     def get_processed_count(self) -> int:
         return self.processed_count
 
     def get_remaining_count(self) -> int:
-        return len(self.storage) - self.nxt_output_index
+        return len(self.storage)
 
 
 class NumericProcessor(DataProcessor):
-
     def validate(self, data: Any) -> bool:
+        if isinstance(data, bool):
+            return False
         if isinstance(data, (int, float)):
             return True
-        if isinstance(data, list):
-            return all(isinstance(item, (int, float)) for item in data)
+        if isinstance(data, list) and len(data) > 0:
+            return all(
+                not isinstance(item, bool) and isinstance(item, (int, float))
+                for item in data
+            )
         return False
 
-    def ingest(self, data: Union[int, float, list[Union[int, float]]]) -> None:
+    def ingest(self, data: int | float | Sequence[int | float]) -> None:
         if not self.validate(data):
             raise Exception("Improper numeric data")
 
-        if isinstance(data, (int, float)):
-            tmp_data = [data]
-        else:
-            tmp_data = data
+        tmp_data = [data] if isinstance(data, (int, float)) else data
 
         for item in tmp_data:
             self.storage.append((self.idx_counter, str(item)))
@@ -57,22 +55,18 @@ class NumericProcessor(DataProcessor):
 
 
 class TextProcessor(DataProcessor):
-
     def validate(self, data: Any) -> bool:
         if isinstance(data, str):
             return True
-        if isinstance(data, list):
+        if isinstance(data, list) and len(data) > 0:
             return all(isinstance(item, str) for item in data)
         return False
 
-    def ingest(self, data: Union[str, list[str]]) -> None:
+    def ingest(self, data: str | list[str]) -> None:
         if not self.validate(data):
             raise Exception("Improper text data")
 
-        if isinstance(data, str):
-            tmp_data = [data]
-        else:
-            tmp_data = data
+        tmp_data = [data] if isinstance(data, str) else data
 
         for item in tmp_data:
             self.storage.append((self.idx_counter, item))
@@ -81,34 +75,31 @@ class TextProcessor(DataProcessor):
 
 
 class LogProcessor(DataProcessor):
-
     def validate(self, data: Any) -> bool:
-        if isinstance(data, dict):
-            return all(isinstance(k, str) and isinstance(v, str)
-                       for k, v in data.items())
-        if isinstance(data, list):
+        if isinstance(data, dict) and len(data) > 0:
             return all(
-                isinstance(item, dict) and
-                all(isinstance(k, str) and isinstance(v, str)
-                    for k, v in item.items())
+                isinstance(k, str) and isinstance(v, str)
+                for k, v in data.items()
+            )
+        if isinstance(data, list) and len(data) > 0:
+            return all(
+                isinstance(item, dict)
+                and all(
+                    isinstance(k, str) and isinstance(v, str)
+                    for k, v in item.items()
+                )
                 for item in data
             )
         return False
 
-    def ingest(
-        self,
-        data: Union[dict[str, str], list[dict[str, str]]]
-    ) -> None:
+    def ingest(self, data: dict[str, str] | list[dict[str, str]]) -> None:
         if not self.validate(data):
             raise Exception("Improper log data")
 
-        if isinstance(data, dict):
-            tmp_data = [data]
-        else:
-            tmp_data = data
+        tmp_data = [data] if isinstance(data, dict) else data
 
         for log_dict in tmp_data:
-            if 'log_level' in log_dict and 'log_message' in log_dict:
+            if "log_level" in log_dict and "log_message" in log_dict:
                 log_str = f"{log_dict['log_level']}: {log_dict['log_message']}"
             else:
                 parts = []
@@ -121,8 +112,7 @@ class LogProcessor(DataProcessor):
 
 
 class ExportPlugin(Protocol):
-    def process_output(self, data: list[tuple[int, str]]) -> None:
-        ...
+    def process_output(self, data: list[tuple[int, str]]) -> None: ...
 
 
 class CSVExportPlugin:
@@ -147,8 +137,8 @@ class JSONExportPlugin:
 
 
 class DataStream:
-    def __init__(self):
-        self.processors = []
+    def __init__(self) -> None:
+        self.processors: list[DataProcessor] = []
 
     def register_processor(self, proc: DataProcessor) -> None:
         self.processors.append(proc)
@@ -163,21 +153,25 @@ class DataStream:
                         processed = True
                         break
                     except Exception:
-                        print(f"DataStream error - Error ingesting element: "
-                              f"{element}")
+                        print(
+                            f"DataStream error - Error ingesting element: "
+                            f"{element}"
+                        )
                         processed = True
                         break
             if not processed:
-                print(f"DataStream error - Can't process element in stream: "
-                      f"{element}")
+                print(
+                    f"DataStream error - Can't process element in stream: "
+                    f"{element}"
+                )
 
     def output_pipeline(self, nb: int, plugin: ExportPlugin) -> None:
         for processor in self.processors:
-            data_to_export = []
+            data_to_export: list[tuple[int, str]] = []
             for _ in range(nb):
-                rank, value = processor.output()
-                if rank == 0 and value == "":
+                if processor.get_remaining_count() == 0:
                     break
+                rank, value = processor.output()
                 data_to_export.append((rank, value))
             if data_to_export:
                 plugin.process_output(data_to_export)
@@ -191,8 +185,10 @@ class DataStream:
             processor_name = processor.__class__.__name__
             total = processor.get_processed_count()
             remaining = processor.get_remaining_count()
-            print(f"{processor_name}: total {total} items processed, "
-                  f"remaining {remaining} on processor")
+            print(
+                f"{processor_name}: total {total} items processed, "
+                f"remaining {remaining} on processor"
+            )
 
 
 if __name__ == "__main__":
@@ -210,17 +206,18 @@ if __name__ == "__main__":
     data_stream.register_processor(text_proc)
     data_stream.register_processor(log_proc)
 
-    first_batch = [
-        'Hello world',
+    first_batch: list[Any] = [
+        "Hello world",
         [4.14, -1, 2.71],
         [
-            {'log_level': 'WARNING',
-             'log_message': 'Telnet access! Use ssh instead'},
-            {'log_level': 'INFO',
-             'log_message': 'User wil is connected'}
+            {
+                "log_level": "WARNING",
+                "log_message": "Telnet access! Use ssh instead",
+            },
+            {"log_level": "INFO", "log_message": "User wil is connected"},
         ],
         43,
-        ['Hi', 'five']
+        ["Hi", "five"],
     ]
 
     print(f"\nSend first batch of data on stream: {first_batch}")
@@ -236,17 +233,18 @@ if __name__ == "__main__":
     print("\n== DataStream statistics ==")
     data_stream.print_processors_stats()
 
-    second_batch = [
+    second_batch: list[Any] = [
         22,
-        ['I love AI', 'LLMs are wonderful', 'Stay healthy'],
+        ["I love AI", "LLMs are wonderful", "Stay healthy"],
         [
-            {'log_level': 'ERROR',
-             'log_message': '501 server crash'},
-            {'log_level': 'NOTICE',
-             'log_message': 'Certificate expires in 11 days'}
+            {"log_level": "ERROR", "log_message": "501 server crash"},
+            {
+                "log_level": "NOTICE",
+                "log_message": "Certificate expires in 11 days",
+            },
         ],
         [33, 42, 64, 84, 128, 168],
-        'World hello'
+        "World hello",
     ]
 
     print(f"\nSend another batch of data: {second_batch}")

@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Union, Any, Sequence
+from typing import Any, Sequence
 
 
 class DataProcessor(ABC):
-
-    def __init__(self):
-        self.idx_counter = 0
-        self.nxt_output_index = 0
-        self.storage = []
+    def __init__(self) -> None:
+        self.idx_counter: int = 0
+        self.storage: list[tuple[int, str]] = []
 
     @abstractmethod
     def validate(self, data: Any) -> bool:
@@ -18,33 +16,31 @@ class DataProcessor(ABC):
         pass
 
     def output(self) -> tuple[int, str]:
-        if self.nxt_output_index < len(self.storage):
-            idx, output = self.storage[self.nxt_output_index]
-            self.nxt_output_index += 1
-            return (idx, output)
+        if self.storage:
+            return self.storage.pop(0)
         return (0, "")
 
 
 class NumericProcessor(DataProcessor):
-
     def validate(self, data: Any) -> bool:
+        if isinstance(data, bool):
+            return False
         if isinstance(data, (int, float)):
             return True
-        if isinstance(data, list):
-            return all(isinstance(item, (int, float)) for item in data)
+        if isinstance(data, list) and len(data) > 0:
+            return all(
+                not isinstance(data, bool) and isinstance(item, (int, float))
+                for item in data
+            )
         return False
 
     def ingest(
-        self,
-        data: Union[int, float, Sequence[Union[int, float]]]
+        self, data: int | float | Sequence[int | float]
     ) -> None:
         if not self.validate(data):
             raise Exception("Improper numeric data")
 
-        if isinstance(data, (int, float)):
-            tmp_data = [data]
-        else:
-            tmp_data = list(data)  # Converte Sequence para list
+        tmp_data = [data] if isinstance(data, (int, float)) else data
 
         for item in tmp_data:
             self.storage.append((self.idx_counter, str(item)))
@@ -52,22 +48,18 @@ class NumericProcessor(DataProcessor):
 
 
 class TextProcessor(DataProcessor):
-
     def validate(self, data: Any) -> bool:
         if isinstance(data, str):
             return True
-        if isinstance(data, list):
+        if isinstance(data, list) and len(data) > 0:
             return all(isinstance(item, str) for item in data)
         return False
 
-    def ingest(self, data: Union[str, Sequence[str]]) -> None:
+    def ingest(self, data: str | list[str]) -> None:
         if not self.validate(data):
             raise Exception("Improper text data")
 
-        if isinstance(data, str):
-            tmp_data = [data]
-        else:
-            tmp_data = list(data)
+        tmp_data = [data] if isinstance(data, str) else data
 
         for item in tmp_data:
             self.storage.append((self.idx_counter, item))
@@ -75,34 +67,31 @@ class TextProcessor(DataProcessor):
 
 
 class LogProcessor(DataProcessor):
-
     def validate(self, data: Any) -> bool:
-        if isinstance(data, dict):
-            return all(isinstance(k, str) and isinstance(v, str)
-                       for k, v in data.items())
-        if isinstance(data, list):
+        if isinstance(data, dict) and len(data) > 0:
             return all(
-                isinstance(item, dict) and
-                all(isinstance(k, str) and isinstance(v, str)
-                    for k, v in item.items())
+                isinstance(k, str) and isinstance(v, str)
+                for k, v in data.items()
+            )
+        if isinstance(data, list) and len(data) > 0:
+            return all(
+                isinstance(item, dict)
+                and all(
+                    isinstance(k, str) and isinstance(v, str)
+                    for k, v in item.items()
+                )
                 for item in data
             )
         return False
 
-    def ingest(
-        self,
-        data: Union[dict[str, str], Sequence[dict[str, str]]]
-    ) -> None:
+    def ingest(self, data: dict[str, str] | list[dict[str, str]]) -> None:
         if not self.validate(data):
             raise Exception("Improper log data")
 
-        if isinstance(data, dict):
-            tmp_data = [data]
-        else:
-            tmp_data = list(data)
+        tmp_data = [data] if isinstance(data, dict) else data
 
         for log_dict in tmp_data:
-            if 'log_level' in log_dict and 'log_message' in log_dict:
+            if "log_level" in log_dict and "log_message" in log_dict:
                 log_str = f"{log_dict['log_level']}: {log_dict['log_message']}"
             else:
                 parts = []
@@ -123,13 +112,14 @@ if __name__ == "__main__":
     print("Testing Numeric Processor...")
     print(f"Trying to validate input '42': {nproc.validate(42)}")
     print(f"Trying to validate input 'Hello': {nproc.validate('Hello')}")
-    print("Test with invalid ingestion of string 'foo' without prior "
-          "validation:")
+    print(
+        "Test with invalid ingestion of string 'foo' without prior validation:"
+    )
 
     try:
         nproc.ingest("foo")
     except Exception as e:
-        print(e)
+        print(f"Got exception: {e}")
 
     valid_num_input = [1, 2, 3, 4, 5]
     print(f"Processing data: {valid_num_input}")
@@ -141,9 +131,8 @@ if __name__ == "__main__":
         print(f"Numeric value {idx}: {val}")
 
     print("\nTesting Text Processor...")
-    print(f"Trying to validate input '42': "
-          f"{tproc.validate('42')}")
-    tproc.ingest(['Hello', 'Nexus', 'World'])
+    print(f"Trying to validate input '42': {tproc.validate('42')}")
+    tproc.ingest(["Hello", "Nexus", "World"])
     print("Processing data: ['Hello', 'Nexus', 'World']")
     print("Extracting 1 value...")
     idx, val = tproc.output()
@@ -152,8 +141,8 @@ if __name__ == "__main__":
     print("\nTesting Log Processor...")
     print(f"Trying to validate input 'Hello': {lproc.validate('Hello')}")
     log_data = [
-        {'log_level': 'NOTICE', 'log_message': 'Connection to server'},
-        {'log_level': 'ERROR', 'log_message': 'Unauthorized access!!'}
+        {"log_level": "NOTICE", "log_message": "Connection to server"},
+        {"log_level": "ERROR", "log_message": "Unauthorized access!!"},
     ]
     lproc.ingest(log_data)
     print(f"Processing data: {log_data}")
